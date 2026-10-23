@@ -117,6 +117,14 @@ func TestMinterForConfig(t *testing.T) {
 		{"token exchange without subject token file", func(c *schemas.OAuthKeyConfig) {
 			c.GrantType = schemas.OAuthGrantTokenExchange
 		}, "subject_token_file is required"},
+		{"token exchange google id token without audience", func(c *schemas.OAuthKeyConfig) {
+			c.GrantType = schemas.OAuthGrantTokenExchange
+			c.SubjectTokenSource = schemas.OAuthSubjectTokenSourceGoogleIDToken
+		}, "subject_token_audience is required"},
+		{"token exchange unknown source", func(c *schemas.OAuthKeyConfig) {
+			c.GrantType = schemas.OAuthGrantTokenExchange
+			c.SubjectTokenFile, c.SubjectTokenSource = "/t", "aws"
+		}, "subject_token_source must be file or google_id_token"},
 		{"token exchange bad encoding", func(c *schemas.OAuthKeyConfig) {
 			c.GrantType = schemas.OAuthGrantTokenExchange
 			c.SubjectTokenFile, c.RequestEncoding = "/t", "xml"
@@ -240,6 +248,9 @@ func TestOAuthKeyCacheKey(t *testing.T) {
 			{"subject token file", func(c *schemas.OAuthKeyConfig) { c.SubjectTokenFile = "/var/run/secrets/other" }},
 			{"subject token type", func(c *schemas.OAuthKeyConfig) { c.SubjectTokenType = "urn:ietf:params:oauth:token-type:id_token" }},
 			{"request encoding", func(c *schemas.OAuthKeyConfig) { c.RequestEncoding = schemas.OAuthRequestEncodingJSON }},
+			{"subject token source", func(c *schemas.OAuthKeyConfig) {
+				c.SubjectTokenSource, c.SubjectTokenAudience = schemas.OAuthSubjectTokenSourceGoogleIDToken, "aud"
+			}},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				c := teBase()

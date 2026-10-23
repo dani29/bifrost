@@ -310,6 +310,7 @@ export interface GithubCopilotSignInPollResult {
 // bearer from the token endpoint and refreshes it before expiry.
 export type OAuthGrantType = "client_credentials" | "jwt_bearer" | "token_exchange";
 export type OAuthRequestEncoding = "form" | "json";
+export type OAuthSubjectTokenSource = "file" | "google_id_token";
 export type OAuthAuthStyle = "header" | "body";
 export type OAuthSigningAlgorithm = "RS256" | "RS384" | "RS512" | "PS256" | "PS384" | "PS512" | "ES256" | "ES384" | "ES512";
 export const OAuthSigningAlgorithms: OAuthSigningAlgorithm[] = [
@@ -341,6 +342,8 @@ export interface OAuthKeyConfig {
 	subject_token_file?: string;
 	subject_token_type?: string;
 	request_encoding?: OAuthRequestEncoding;
+	subject_token_source?: OAuthSubjectTokenSource;
+	subject_token_audience?: string;
 	// UI-only discriminator; not sent to the API.
 	_auth_type?: "api_key" | "oauth";
 }
@@ -364,6 +367,8 @@ export const DefaultOAuthKeyConfig: OAuthKeyConfig = {
 	subject_token_file: "",
 	subject_token_type: "",
 	request_encoding: "form",
+	subject_token_source: "file",
+	subject_token_audience: "",
 	_auth_type: "api_key",
 } as const satisfies Required<OAuthKeyConfig>;
 

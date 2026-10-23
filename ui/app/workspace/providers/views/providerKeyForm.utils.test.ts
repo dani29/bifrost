@@ -108,6 +108,16 @@ describe("stripOAuthAuthDiscriminator", () => {
 		});
 		expect(exchange).toEqual({ grant_type: "token_exchange", token_url: tokenUrl, subject_token_file: "/t", request_encoding: "json" });
 
+		const google = stripOAuthAuthDiscriminator({
+			_auth_type: "oauth",
+			grant_type: "token_exchange",
+			token_url: tokenUrl,
+			subject_token_source: "google_id_token",
+			subject_token_audience: "a",
+			subject_token_file: "",
+		});
+		expect(google).toEqual({ grant_type: "token_exchange", token_url: tokenUrl, subject_token_source: "google_id_token", subject_token_audience: "a" });
+
 		// A grant switched away from token_exchange must not carry its fields, which the server refuses.
 		const switched = stripOAuthAuthDiscriminator({ _auth_type: "oauth", ...cc, subject_token_file: "/t", request_encoding: "json" });
 		expect(switched).not.toHaveProperty("subject_token_file");

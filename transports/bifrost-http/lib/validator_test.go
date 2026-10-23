@@ -3763,6 +3763,7 @@ func TestSchemaOAuthKeyConfig(t *testing.T) {
 		{"client_credentials", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, ` + cc)},
 		{"jwt_bearer", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, ` + jb)},
 		{"token_exchange", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, ` + te)},
+		{"token_exchange from a Google ID token", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_source": "google_id_token", "subject_token_audience": "https://api.openai.com"}`)},
 		{"token_exchange with defaults", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_file": "/t"}`)},
 		{"alongside a value", customProvider(`"name": "k", "value": "sk", "models": ["*"], "weight": 1.0, ` + cc)},
 		// OAuthKeyConfig.Validate treats 0 as "use the default lifetime", so the schema must too.
@@ -3796,6 +3797,11 @@ func TestSchemaOAuthKeyConfig(t *testing.T) {
 		{"token_exchange without subject_token_file", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token"}`)},
 		{"token_exchange relative subject_token_file", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_file": "token"}`)},
 		{"token_exchange unknown request_encoding", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_file": "/t", "request_encoding": "xml"}`)},
+		{"google_id_token without an audience", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_source": "google_id_token"}`)},
+		{"google_id_token with a file", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_source": "google_id_token", "subject_token_audience": "a", "subject_token_file": "/t"}`)},
+		{"file source with an audience", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_file": "/t", "subject_token_audience": "a"}`)},
+		{"unknown subject_token_source", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "token_exchange", "token_url": "https://idp/token", "subject_token_source": "aws", "subject_token_file": "/t"}`)},
+		{"subject_token_source on client_credentials", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "client_credentials", "token_url": "https://idp/token", "client_id": "id", "client_secret": "s", "subject_token_source": "google_id_token"}`)},
 		{"subject_token_file on client_credentials", customProvider(`"name": "k", "models": ["*"], "weight": 1.0, "oauth_key_config": {"grant_type": "client_credentials", "token_url": "https://idp/token", "client_id": "id", "client_secret": "s", "subject_token_file": "/t"}`)},
 	}
 	for _, tt := range invalid {

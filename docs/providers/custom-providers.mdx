@@ -379,6 +379,8 @@ curl --location 'http://localhost:8080/api/providers/acme-llm/keys' \
 | `subject_token_file` | token exchange | Absolute path of the subject token, inside a directory listed in the `BIFROST_SUBJECT_TOKEN_DIRS` environment variable. Re-read on every exchange, so a token the platform rotates in place is picked up. |
 | `subject_token_type` | | RFC 8693 token type URI of the subject token. Default `urn:ietf:params:oauth:token-type:jwt`. |
 | `request_encoding` | | `form` (default) or `json` for the token exchange request body. OpenAI's token endpoint requires `json`. |
+| `subject_token_source` | | `file` (default) reads `subject_token_file`; `google_id_token` fetches a Google ID token from the GCP metadata server as the workload's service account. |
+| `subject_token_audience` | Google ID token | The `aud` of the Google ID token. Must equal the audience configured on the token endpoint's identity provider. |
 | `extra_params` | | Extra form parameters sent on every token request. Values are masked when the key is read back, and the column is encrypted at rest only when encryption is enabled (`encryption_key` or `BIFROST_ENCRYPTION_KEY`, see [config.json](/deployment-guides/config-json)), like every other credential column. This map is not the place for a credential: use `client_secret` or `private_key`. |
 
 **Token lifetime.** Bifrost normally refreshes a token one minute before the expiry the endpoint reported. If the token already has one minute or less left when it is minted, Bifrost refreshes it halfway through its remaining lifetime (a 30-second token is re-minted after about 15 seconds). A token endpoint that returns no `expires_in` is assumed to live five minutes, so such a token is re-minted roughly every four minutes.
@@ -431,6 +433,26 @@ Point a key on the `openai` provider at it:
 ```
 
 The kubelet rotates the projected token before it expires, and Bifrost reads the file on every exchange, so nothing needs restarting.
+
+##### GKE Workload Identity, GCE and Cloud Run
+
+On GCP, Bifrost can use a Google ID token for its service account instead of a projected token: no volume and no `BIFROST_SUBJECT_TOKEN_DIRS`. Every such token has the issuer `https://accounts.google.com`, so one OpenAI Workload Identity Provider serves workloads in any project or cluster. Register it with that issuer and OIDC discovery (Google rotates its signing keys, so don't upload a JWKS), and map each service account exactly, by `sub` (the service account's numeric unique ID) or `email`. Avoid wildcards: anyone can create a Google service account, and the issuer is the same for all of them.
+
+```json
+"oauth_key_config": {
+  "grant_type": "token_exchange",
+  "token_url": "https://auth.openai.com/oauth/token",
+  "subject_token_source": "google_id_token",
+  "subject_token_audience": "https://api.openai.com",
+  "request_encoding": "json",
+  "extra_params": {
+    "identity_provider_id": "<identity provider ID>",
+    "service_account_id": "<service account ID>"
+  }
+}
+```
+
+Bifrost fetches a fresh ID token from the metadata server each time it exchanges, through the metadata client rather than the provider's `proxy_config`, and only the audience is configurable.
 
 ### Streaming Termination
 

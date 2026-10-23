@@ -535,6 +535,18 @@ func TestValidateKeyOAuthKeyConfig(t *testing.T) {
 		{name: "token_exchange bad request_encoding", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) { c.RequestEncoding = "xml" })}, wantError: "request_encoding must be form or json"},
 		{name: "token_exchange file outside the allowed directories", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenFile = "/etc/secrets/key" })}, wantError: "must be inside a directory listed in"},
 		{name: "token_exchange file climbing out with ..", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenFile = "/var/run/secrets/openai/../../../etc/passwd" })}, wantError: "must be inside a directory listed in"},
+		{name: "token_exchange google_id_token is sufficient", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) {
+			c.SubjectTokenFile, c.SubjectTokenSource, c.SubjectTokenAudience = "", schemas.OAuthSubjectTokenSourceGoogleIDToken, "https://api.openai.com"
+		})}},
+		{name: "token_exchange google_id_token without audience", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) {
+			c.SubjectTokenFile, c.SubjectTokenSource = "", schemas.OAuthSubjectTokenSourceGoogleIDToken
+		})}, wantError: "subject_token_audience is required"},
+		{name: "token_exchange google_id_token with a file", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) {
+			c.SubjectTokenSource, c.SubjectTokenAudience = schemas.OAuthSubjectTokenSourceGoogleIDToken, "aud"
+		})}, wantError: "subject_token_file must be empty"},
+		{name: "token_exchange file source with an audience", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenAudience = "aud" })}, wantError: "applies to subject_token_source google_id_token only"},
+		{name: "token_exchange unknown source", key: schemas.Key{OAuthKeyConfig: te(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenSource = "aws" })}, wantError: "subject_token_source must be file or google_id_token"},
+		{name: "subject_token_source on another grant", key: schemas.Key{OAuthKeyConfig: cc(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenSource = schemas.OAuthSubjectTokenSourceGoogleIDToken })}, wantError: "apply to the token_exchange grant only"},
 		{name: "token_exchange fields on another grant", key: schemas.Key{OAuthKeyConfig: cc(func(c *schemas.OAuthKeyConfig) { c.SubjectTokenFile = "/t" })}, wantError: "apply to the token_exchange grant only"},
 		// Key selection runs this on every request. A static value always wins over the block, so
 		// an incomplete block must not take a usable key out of rotation; the management API

@@ -53,6 +53,12 @@ export const stripOAuthAuthDiscriminator = (config: OAuthKeyConfigForm | undefin
 		delete rest.subject_token_file;
 		delete rest.subject_token_type;
 		delete rest.request_encoding;
+		delete rest.subject_token_source;
+		delete rest.subject_token_audience;
+	} else if (rest.subject_token_source === "google_id_token") {
+		delete rest.subject_token_file;
+	} else {
+		delete rest.subject_token_audience;
 	}
 	if (rest.scopes && rest.scopes.length === 0) delete rest.scopes;
 	if (rest.extra_params && Object.keys(rest.extra_params).length === 0) delete rest.extra_params;

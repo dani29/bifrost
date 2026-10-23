@@ -215,6 +215,10 @@ describe("oauthKeyConfigComplete", () => {
 		expect(oauthKeyConfigComplete({ grant_type: "jwt_bearer", token_url: tokenUrl, private_key: { value: pem }, issuer: "i" })).toBe(false);
 		expect(oauthKeyConfigComplete({ grant_type: "token_exchange", token_url: tokenUrl, subject_token_file: "/var/run/secrets/token" })).toBe(true);
 		expect(oauthKeyConfigComplete({ grant_type: "token_exchange", token_url: tokenUrl })).toBe(false);
+		expect(
+			oauthKeyConfigComplete({ grant_type: "token_exchange", token_url: tokenUrl, subject_token_source: "google_id_token", subject_token_audience: "a" }),
+		).toBe(true);
+		expect(oauthKeyConfigComplete({ grant_type: "token_exchange", token_url: tokenUrl, subject_token_source: "google_id_token" })).toBe(false);
 		expect(oauthKeyConfigComplete(undefined)).toBe(false);
 	});
 });

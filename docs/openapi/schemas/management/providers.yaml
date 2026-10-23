@@ -323,6 +323,15 @@ OAuthKeyConfig:
       enum: [form, json]
       default: form
       description: token_exchange request body encoding; OpenAI's token endpoint requires json
+    subject_token_source:
+      type: string
+      enum: [file, google_id_token]
+      default: file
+      description: token_exchange subject token source, subject_token_file (default) or a Google ID token from the GCP metadata server as the workload's service account
+    subject_token_audience:
+      type: string
+      minLength: 1
+      description: token_exchange with subject_token_source google_id_token, aud of the Google ID token; must equal the audience the token endpoint's identity provider expects
   additionalProperties: false
   allOf:
     - if:
@@ -350,14 +359,28 @@ OAuthKeyConfig:
           grant_type:
             const: token_exchange
       then:
-        required: [subject_token_file]
-        description: token_exchange needs the subject token file
+        if:
+          required: [subject_token_source]
+          properties:
+            subject_token_source:
+              const: google_id_token
+        then:
+          required: [subject_token_audience]
+          not:
+            required: [subject_token_file]
+        else:
+          required: [subject_token_file]
+          not:
+            required: [subject_token_audience]
+        description: token_exchange needs the subject token file, or an audience for a Google ID token
       else:
         not:
           anyOf:
             - required: [subject_token_file]
             - required: [subject_token_type]
             - required: [request_encoding]
+            - required: [subject_token_source]
+            - required: [subject_token_audience]
         description: the token_exchange fields are refused on the other grants
 
 Key:

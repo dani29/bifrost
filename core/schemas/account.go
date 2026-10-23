@@ -1154,6 +1154,17 @@ const (
 	OAuthRequestEncodingJSON OAuthRequestEncoding = "json"
 )
 
+// OAuthSubjectTokenSource selects where the token_exchange grant gets its subject token.
+type OAuthSubjectTokenSource string
+
+const (
+	// OAuthSubjectTokenSourceFile reads subject_token_file (the default).
+	OAuthSubjectTokenSourceFile OAuthSubjectTokenSource = "file"
+	// OAuthSubjectTokenSourceGoogleIDToken fetches a Google ID token for subject_token_audience
+	// from the GCP metadata server, as the workload's service account.
+	OAuthSubjectTokenSourceGoogleIDToken OAuthSubjectTokenSource = "google_id_token"
+)
+
 // OAuthAuthStyle selects where the client_credentials grant sends the client ID and secret.
 type OAuthAuthStyle string
 
@@ -1173,23 +1184,25 @@ const (
 // Leave Key.Value empty to mint from this config; a non-empty Value always wins and is sent
 // verbatim as the bearer token.
 type OAuthKeyConfig struct {
-	GrantType                OAuthGrantType       `json:"grant_type"`                           // client_credentials, jwt_bearer or token_exchange (required)
-	TokenURL                 SecretVar            `json:"token_url"`                            // Token endpoint, absolute https URL (required, supports env. prefix)
-	ClientID                 *SecretVar           `json:"client_id,omitempty"`                  // client_credentials: client ID (required for that grant)
-	ClientSecret             *SecretVar           `json:"client_secret,omitempty"`              // client_credentials: client secret (required for that grant)
-	PrivateKey               *SecretVar           `json:"private_key,omitempty"`                // jwt_bearer: RSA or EC private key, PEM (required for that grant)
-	Scopes                   []string             `json:"scopes,omitempty"`                     // Scopes requested, sent space-joined
-	Audience                 string               `json:"audience,omitempty"`                   // jwt_bearer: aud claim (required for that grant); client_credentials, token_exchange: optional audience param
-	Issuer                   string               `json:"issuer,omitempty"`                     // jwt_bearer: iss claim (required for that grant)
-	Subject                  string               `json:"subject,omitempty"`                    // jwt_bearer: sub claim (defaults to issuer)
-	KeyID                    string               `json:"key_id,omitempty"`                     // jwt_bearer: kid header
-	SigningAlgorithm         string               `json:"signing_algorithm,omitempty"`          // jwt_bearer: RS256 (default), RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
-	AuthStyle                OAuthAuthStyle       `json:"auth_style,omitempty"`                 // client_credentials: header (default) or body
-	ExtraParams              map[string]string    `json:"extra_params,omitempty"`               // Extra form parameters sent on the token request
-	AssertionLifetimeSeconds int                  `json:"assertion_lifetime_seconds,omitempty"` // jwt_bearer: assertion exp - iat (default 300)
-	SubjectTokenFile         string               `json:"subject_token_file,omitempty"`         // token_exchange: path of the subject token, re-read on every exchange (required for that grant)
-	SubjectTokenType         string               `json:"subject_token_type,omitempty"`         // token_exchange: RFC 8693 token type URI (default urn:ietf:params:oauth:token-type:jwt)
-	RequestEncoding          OAuthRequestEncoding `json:"request_encoding,omitempty"`           // token_exchange: form (default) or json
+	GrantType                OAuthGrantType          `json:"grant_type"`                           // client_credentials, jwt_bearer or token_exchange (required)
+	TokenURL                 SecretVar               `json:"token_url"`                            // Token endpoint, absolute https URL (required, supports env. prefix)
+	ClientID                 *SecretVar              `json:"client_id,omitempty"`                  // client_credentials: client ID (required for that grant)
+	ClientSecret             *SecretVar              `json:"client_secret,omitempty"`              // client_credentials: client secret (required for that grant)
+	PrivateKey               *SecretVar              `json:"private_key,omitempty"`                // jwt_bearer: RSA or EC private key, PEM (required for that grant)
+	Scopes                   []string                `json:"scopes,omitempty"`                     // Scopes requested, sent space-joined
+	Audience                 string                  `json:"audience,omitempty"`                   // jwt_bearer: aud claim (required for that grant); client_credentials, token_exchange: optional audience param
+	Issuer                   string                  `json:"issuer,omitempty"`                     // jwt_bearer: iss claim (required for that grant)
+	Subject                  string                  `json:"subject,omitempty"`                    // jwt_bearer: sub claim (defaults to issuer)
+	KeyID                    string                  `json:"key_id,omitempty"`                     // jwt_bearer: kid header
+	SigningAlgorithm         string                  `json:"signing_algorithm,omitempty"`          // jwt_bearer: RS256 (default), RS384, RS512, PS256, PS384, PS512, ES256, ES384, ES512
+	AuthStyle                OAuthAuthStyle          `json:"auth_style,omitempty"`                 // client_credentials: header (default) or body
+	ExtraParams              map[string]string       `json:"extra_params,omitempty"`               // Extra form parameters sent on the token request
+	AssertionLifetimeSeconds int                     `json:"assertion_lifetime_seconds,omitempty"` // jwt_bearer: assertion exp - iat (default 300)
+	SubjectTokenFile         string                  `json:"subject_token_file,omitempty"`         // token_exchange: path of the subject token, re-read on every exchange (required for that grant)
+	SubjectTokenType         string                  `json:"subject_token_type,omitempty"`         // token_exchange: RFC 8693 token type URI (default urn:ietf:params:oauth:token-type:jwt)
+	RequestEncoding          OAuthRequestEncoding    `json:"request_encoding,omitempty"`           // token_exchange: form (default) or json
+	SubjectTokenSource       OAuthSubjectTokenSource `json:"subject_token_source,omitempty"`       // token_exchange: file (default) or google_id_token
+	SubjectTokenAudience     string                  `json:"subject_token_audience,omitempty"`     // token_exchange + google_id_token: aud of the Google ID token (required)
 }
 
 // Redacted returns a copy safe to return from a configuration read: the token URL stays
@@ -1287,14 +1300,29 @@ func (c *OAuthKeyConfig) Validate() error {
 			return fmt.Errorf("oauth_key_config.assertion_lifetime_seconds must be between 0 (default) and 3600")
 		}
 	case OAuthGrantTokenExchange:
-		if strings.TrimSpace(c.SubjectTokenFile) == "" {
-			return fmt.Errorf("oauth_key_config.subject_token_file is required for the token_exchange grant")
-		}
-		if !filepath.IsAbs(strings.TrimSpace(c.SubjectTokenFile)) {
-			return fmt.Errorf("oauth_key_config.subject_token_file must be an absolute path")
-		}
-		if _, err := SubjectTokenDir(strings.TrimSpace(c.SubjectTokenFile)); err != nil {
-			return err
+		switch c.SubjectTokenSource {
+		case "", OAuthSubjectTokenSourceFile:
+			if strings.TrimSpace(c.SubjectTokenFile) == "" {
+				return fmt.Errorf("oauth_key_config.subject_token_file is required for the token_exchange grant")
+			}
+			if !filepath.IsAbs(strings.TrimSpace(c.SubjectTokenFile)) {
+				return fmt.Errorf("oauth_key_config.subject_token_file must be an absolute path")
+			}
+			if _, err := SubjectTokenDir(strings.TrimSpace(c.SubjectTokenFile)); err != nil {
+				return err
+			}
+			if c.SubjectTokenAudience != "" {
+				return fmt.Errorf("oauth_key_config.subject_token_audience applies to subject_token_source google_id_token only")
+			}
+		case OAuthSubjectTokenSourceGoogleIDToken:
+			if strings.TrimSpace(c.SubjectTokenAudience) == "" {
+				return fmt.Errorf("oauth_key_config.subject_token_audience is required for subject_token_source google_id_token")
+			}
+			if c.SubjectTokenFile != "" {
+				return fmt.Errorf("oauth_key_config.subject_token_file must be empty for subject_token_source google_id_token")
+			}
+		default:
+			return fmt.Errorf("oauth_key_config.subject_token_source must be file or google_id_token")
 		}
 		switch c.RequestEncoding {
 		case "", OAuthRequestEncodingForm, OAuthRequestEncodingJSON:
@@ -1307,8 +1335,9 @@ func (c *OAuthKeyConfig) Validate() error {
 		return fmt.Errorf("oauth_key_config.grant_type must be client_credentials, jwt_bearer or token_exchange")
 	}
 	// Refused rather than ignored: a stray field reads as a working key that sends something else.
-	if c.GrantType != OAuthGrantTokenExchange && (c.SubjectTokenFile != "" || c.SubjectTokenType != "" || c.RequestEncoding != "") {
-		return fmt.Errorf("oauth_key_config.subject_token_file, subject_token_type and request_encoding apply to the token_exchange grant only")
+	if c.GrantType != OAuthGrantTokenExchange && (c.SubjectTokenFile != "" || c.SubjectTokenType != "" || c.RequestEncoding != "" ||
+		c.SubjectTokenSource != "" || c.SubjectTokenAudience != "") {
+		return fmt.Errorf("oauth_key_config.subject_token_file, subject_token_type, subject_token_source, subject_token_audience and request_encoding apply to the token_exchange grant only")
 	}
 	return nil
 }

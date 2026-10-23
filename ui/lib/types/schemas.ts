@@ -334,11 +334,15 @@ export const oauthKeyConfigComplete = (data: Record<string, unknown> | undefined
 		issuer?: string;
 		audience?: string;
 		subject_token_file?: string;
+		subject_token_source?: string;
+		subject_token_audience?: string;
 	};
 	if (!isSecretVarSet(d.token_url)) return false;
 	if (d.grant_type === "client_credentials") return isSecretVarSet(d.client_id) && isSecretVarSet(d.client_secret);
 	if (d.grant_type === "jwt_bearer") return isSecretVarSet(d.private_key) && !!d.issuer?.trim() && !!d.audience?.trim();
-	if (d.grant_type === "token_exchange") return !!d.subject_token_file?.trim();
+	if (d.grant_type === "token_exchange") {
+		return d.subject_token_source === "google_id_token" ? !!d.subject_token_audience?.trim() : !!d.subject_token_file?.trim();
+	}
 	return false;
 };
 
@@ -428,6 +432,8 @@ export const oauthKeyConfigSchema = z
 		subject_token_file: z.string().optional(),
 		subject_token_type: z.string().optional(),
 		request_encoding: z.enum(["form", "json"]).optional(),
+		subject_token_source: z.enum(["file", "google_id_token"]).optional(),
+		subject_token_audience: z.string().optional(),
 	})
 	.superRefine((data, ctx) => {
 		// The API-key tab leaves this block inert; only an OAuth block is checked.
@@ -482,7 +488,11 @@ export const oauthKeyConfigSchema = z
 				});
 			}
 		}
-		if (data.grant_type === "token_exchange") {
+		if (data.grant_type === "token_exchange" && data.subject_token_source === "google_id_token") {
+			if (!data.subject_token_audience?.trim()) {
+				ctx.addIssue({ code: "custom", path: ["subject_token_audience"], message: "Audience is required for a Google ID token" });
+			}
+		} else if (data.grant_type === "token_exchange") {
 			const file = data.subject_token_file?.trim() ?? "";
 			if (!file) {
 				ctx.addIssue({ code: "custom", path: ["subject_token_file"], message: "Subject token file is required for token exchange" });

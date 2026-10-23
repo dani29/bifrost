@@ -6997,6 +6997,20 @@
               ],
               "default": "form",
               "description": "token_exchange: encode the token request as a form (RFC 8693 default) or as JSON (required by OpenAI's token endpoint)"
+            },
+            "subject_token_source": {
+              "type": "string",
+              "enum": [
+                "file",
+                "google_id_token"
+              ],
+              "default": "file",
+              "description": "token_exchange: read the subject token from subject_token_file (default), or fetch a Google ID token from the GCP metadata server as the workload's service account (GKE Workload Identity, GCE, Cloud Run)"
+            },
+            "subject_token_audience": {
+              "type": "string",
+              "minLength": 1,
+              "description": "token_exchange with subject_token_source google_id_token: aud of the Google ID token; must equal the audience the token endpoint's identity provider expects"
             }
           },
           "required": [
@@ -7049,9 +7063,36 @@
                 }
               },
               "then": {
-                "required": [
-                  "subject_token_file"
-                ]
+                "if": {
+                  "required": [
+                    "subject_token_source"
+                  ],
+                  "properties": {
+                    "subject_token_source": {
+                      "const": "google_id_token"
+                    }
+                  }
+                },
+                "then": {
+                  "required": [
+                    "subject_token_audience"
+                  ],
+                  "not": {
+                    "required": [
+                      "subject_token_file"
+                    ]
+                  }
+                },
+                "else": {
+                  "required": [
+                    "subject_token_file"
+                  ],
+                  "not": {
+                    "required": [
+                      "subject_token_audience"
+                    ]
+                  }
+                }
               },
               "else": {
                 "not": {
@@ -7069,6 +7110,16 @@
                     {
                       "required": [
                         "request_encoding"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "subject_token_source"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "subject_token_audience"
                       ]
                     }
                   ]

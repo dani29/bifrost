@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -155,7 +156,7 @@ func TestTokenExchangeMinter(t *testing.T) {
 		want    string
 	}{
 		{"missing file", func(*testing.T, string) {}, "subject_token_file could not be read"},
-		{"empty file", func(t *testing.T, file string) { writeSubjectToken(t, file, "  ") }, "subject_token_file is empty"},
+		{"empty file", func(t *testing.T, file string) { writeSubjectToken(t, file, "  ") }, "subject token is empty"},
 		{"oversized file", func(t *testing.T, file string) {
 			require.NoError(t, os.WriteFile(file, make([]byte, maxSubjectTokenBytes+1), 0o600))
 		}, "larger than"},
@@ -265,6 +266,114 @@ func TestTokenExchangeMinter(t *testing.T) {
 			assert.NotContains(t, bErr.Error.Message, "secret-subject-jwt")
 		})
 	}
+}
+
+// metadataServer stands in for the GCP metadata server's identity endpoint.
+type metadataServer struct {
+	*httptest.Server
+	mu       sync.Mutex
+	hits     int
+	flavor   string
+	path     string
+	audience string
+	format   string
+	status   int
+	token    string
+}
+
+func newMetadataServer(t *testing.T, token string) *metadataServer {
+	t.Helper()
+	ms := &metadataServer{status: http.StatusOK, token: token}
+	ms.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ms.mu.Lock()
+		ms.hits++
+		ms.flavor, ms.path = r.Header.Get("Metadata-Flavor"), r.URL.Path
+		ms.audience, ms.format = r.URL.Query().Get("audience"), r.URL.Query().Get("format")
+		status, token := ms.status, ms.token
+		ms.mu.Unlock()
+		w.Header().Set("Metadata-Flavor", "Google")
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(token))
+	}))
+	t.Cleanup(ms.Close)
+	t.Setenv("GCE_METADATA_HOST", strings.TrimPrefix(ms.URL, "http://"))
+	return ms
+}
+
+func TestTokenExchangeGoogleIDToken(t *testing.T) {
+	const audience = "https://api.openai.com/v1?tenant=a&b"
+
+	t.Run("exchanges a metadata server ID token for the configured audience", func(t *testing.T) {
+		ms := newMetadataServer(t, "google-id-jwt")
+		es := newExchangeServer(t)
+		mint := TokenExchangeMinter(TokenExchangeConfig{
+			TokenURL:             es.URL,
+			SubjectTokenSource:   schemas.OAuthSubjectTokenSourceGoogleIDToken,
+			SubjectTokenAudience: audience,
+			Encoding:             schemas.OAuthRequestEncodingJSON,
+		}, authClient(t))
+
+		entry, bErr := mint(context.Background(), nil)
+		require.Nil(t, bErr)
+		assert.Equal(t, "exchanged", entry.Value)
+
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+		assert.Equal(t, "Google", ms.flavor)
+		assert.Equal(t, "/computeMetadata/v1/instance/service-accounts/default/identity", ms.path)
+		assert.Equal(t, audience, ms.audience)
+		assert.Equal(t, "full", ms.format)
+		_, _, params := es.snapshot()
+		assert.Equal(t, "google-id-jwt", params["subject_token"])
+		assert.Equal(t, schemas.OAuthTokenTypeJWT, params["subject_token_type"])
+	})
+
+	t.Run("fetches a fresh token on every exchange", func(t *testing.T) {
+		ms := newMetadataServer(t, "first")
+		es := newExchangeServer(t)
+		mint := TokenExchangeMinter(TokenExchangeConfig{TokenURL: es.URL, SubjectTokenSource: schemas.OAuthSubjectTokenSourceGoogleIDToken, SubjectTokenAudience: audience}, authClient(t))
+
+		_, bErr := mint(context.Background(), nil)
+		require.Nil(t, bErr)
+		ms.mu.Lock()
+		ms.token = "second"
+		ms.mu.Unlock()
+		_, bErr = mint(context.Background(), nil)
+		require.Nil(t, bErr)
+
+		_, _, params := es.snapshot()
+		assert.Equal(t, "second", params["subject_token"])
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+		assert.Equal(t, 2, ms.hits)
+	})
+
+	t.Run("a metadata server failure is transient and never reaches the token endpoint", func(t *testing.T) {
+		ms := newMetadataServer(t, "boom")
+		ms.status = http.StatusInternalServerError
+		es := newExchangeServer(t)
+		mint := TokenExchangeMinter(TokenExchangeConfig{TokenURL: es.URL, SubjectTokenSource: schemas.OAuthSubjectTokenSourceGoogleIDToken, SubjectTokenAudience: audience}, authClient(t))
+
+		_, bErr := mint(context.Background(), nil)
+		require.NotNil(t, bErr)
+		assert.Contains(t, bErr.Error.Message, "could not be fetched from the metadata server")
+		assert.False(t, IsPermanentError(bErr))
+		hits, _, _ := es.snapshot()
+		assert.Zero(t, hits)
+	})
+
+	t.Run("an endpoint error never echoes the Google ID token", func(t *testing.T) {
+		newMetadataServer(t, "secret-google-id-jwt")
+		es := newExchangeServer(t)
+		es.status = http.StatusUnauthorized
+		es.body = `{"error":{"code":"invalid_grant","message":"token secret-google-id-jwt does not match a mapping"}}`
+		mint := TokenExchangeMinter(TokenExchangeConfig{TokenURL: es.URL, SubjectTokenSource: schemas.OAuthSubjectTokenSourceGoogleIDToken, SubjectTokenAudience: audience, Encoding: schemas.OAuthRequestEncodingJSON}, authClient(t))
+
+		_, bErr := mint(context.Background(), nil)
+		require.NotNil(t, bErr)
+		assert.Contains(t, bErr.Error.Message, "invalid_grant")
+		assert.NotContains(t, bErr.Error.Message, "secret-google-id-jwt")
+	})
 }
 
 func TestResolveBearerTokenExchange(t *testing.T) {

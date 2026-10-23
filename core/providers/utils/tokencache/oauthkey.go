@@ -113,14 +113,21 @@ func MinterForConfig(cfg *schemas.OAuthKeyConfig, hc *http.Client) (string, Mint
 		default:
 			return "", nil, configurationError("oauth_key_config.request_encoding must be form or json")
 		}
+		switch cfg.SubjectTokenSource {
+		case "", schemas.OAuthSubjectTokenSourceFile, schemas.OAuthSubjectTokenSourceGoogleIDToken:
+		default:
+			return "", nil, configurationError("oauth_key_config.subject_token_source must be file or google_id_token")
+		}
 		mint := TokenExchangeMinter(TokenExchangeConfig{
-			TokenURL:         tokenURL,
-			SubjectTokenFile: strings.TrimSpace(cfg.SubjectTokenFile),
-			SubjectTokenType: strings.TrimSpace(cfg.SubjectTokenType),
-			Audience:         strings.TrimSpace(cfg.Audience),
-			Scopes:           cfg.Scopes,
-			Encoding:         cfg.RequestEncoding,
-			ExtraParams:      cfg.ExtraParams,
+			TokenURL:             tokenURL,
+			SubjectTokenSource:   cfg.SubjectTokenSource,
+			SubjectTokenAudience: strings.TrimSpace(cfg.SubjectTokenAudience),
+			SubjectTokenFile:     strings.TrimSpace(cfg.SubjectTokenFile),
+			SubjectTokenType:     strings.TrimSpace(cfg.SubjectTokenType),
+			Audience:             strings.TrimSpace(cfg.Audience),
+			Scopes:               cfg.Scopes,
+			Encoding:             cfg.RequestEncoding,
+			ExtraParams:          cfg.ExtraParams,
 		}, hc)
 		return cacheKey, mint, nil
 	default:
@@ -152,7 +159,11 @@ func validateConfig(cfg *schemas.OAuthKeyConfig) (string, *schemas.BifrostError)
 			return "", configurationError("oauth_key_config.private_key, oauth_key_config.issuer and oauth_key_config.audience are required for the jwt_bearer grant")
 		}
 	case schemas.OAuthGrantTokenExchange:
-		if strings.TrimSpace(cfg.SubjectTokenFile) == "" {
+		if cfg.SubjectTokenSource == schemas.OAuthSubjectTokenSourceGoogleIDToken {
+			if strings.TrimSpace(cfg.SubjectTokenAudience) == "" {
+				return "", configurationError("oauth_key_config.subject_token_audience is required for subject_token_source google_id_token")
+			}
+		} else if strings.TrimSpace(cfg.SubjectTokenFile) == "" {
 			return "", configurationError("oauth_key_config.subject_token_file is required for the token_exchange grant")
 		}
 	case "":
@@ -232,6 +243,8 @@ func oauthKeyCacheKey(cfg *schemas.OAuthKeyConfig, tokenURL string) string {
 		cfg.SubjectTokenFile,
 		cfg.SubjectTokenType,
 		string(cfg.RequestEncoding),
+		string(cfg.SubjectTokenSource),
+		cfg.SubjectTokenAudience,
 	)
 }
 

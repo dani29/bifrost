@@ -981,6 +981,10 @@ def test_oauth_key_config_contract_matches_server_validation():
         ("token_exchange without a subject token file", {"grant_type": "token_exchange", "token_url": token_url}, False),
         ("token_exchange with a relative subject token file", {"grant_type": "token_exchange", "token_url": token_url, "subject_token_file": "t"}, False),
         ("token_exchange with an unknown request_encoding", {"grant_type": "token_exchange", "token_url": token_url, "subject_token_file": "/t", "request_encoding": "xml"}, False),
+        ("token_exchange from a Google ID token", {"grant_type": "token_exchange", "token_url": token_url, "subject_token_source": "google_id_token", "subject_token_audience": "a"}, True),
+        ("google_id_token without an audience", {"grant_type": "token_exchange", "token_url": token_url, "subject_token_source": "google_id_token"}, False),
+        ("google_id_token with a file", {"grant_type": "token_exchange", "token_url": token_url, "subject_token_source": "google_id_token", "subject_token_audience": "a", "subject_token_file": "/t"}, False),
+        ("subject_token_source on client_credentials", {"grant_type": "client_credentials", "token_url": token_url, "client_id": "id", "client_secret": "s", "subject_token_source": "google_id_token"}, False),
         ("subject_token_file on client_credentials", {"grant_type": "client_credentials", "token_url": token_url, "client_id": "id", "client_secret": "s", "subject_token_file": "/t"}, False),
     ]
     problems = [
